@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -6,6 +7,11 @@ using ChessChallenge.API;
 
 public class MyBot : IChessBot
 {
+    public MyBot()
+    {
+        decodeWeightsAndBias();
+    }
+
     private ulong[] weightsAndBiasEncoded = new ulong[]
     {
         0x302e303230333230, 0x3736353637343131, 0x343232372c302e30, 0x3231303439333234, 0x3432333037343732,
@@ -45,47 +51,11 @@ public class MyBot : IChessBot
     };
 
     private double[] weights = new double[64];
-    private double[] biases = new double[1];
-    private LinearModel model = null;
-
-    public void decodeWeightsAndBias()
-    {
-        if (weights[0] != 0.0) return; // We already have decoded the weights
-
-        StringBuilder huffmanDecoded = new StringBuilder();
-
-        foreach (ulong hexNumber in weightsAndBiasEncoded)
-        {
-            byte[] bytes = BitConverter.GetBytes(hexNumber);
-            if (BitConverter.IsLittleEndian)
-                Array.Reverse(bytes); // ensures bytes are in the correct order
-
-            string ascii = Encoding.ASCII.GetString(bytes);
-            huffmanDecoded.Append(ascii);
-        }
-
-        // Split string into separate values
-        string[] values = huffmanDecoded.ToString().Split(',');
-
-        // Convert first 64 values to weights
-        for (int i = 0; i < 64; i++)
-        {
-            weights[i] = double.Parse(values[i]);
-        }
-
-        // Convert the remaining values to biases
-        for (int i = 64; i < values.Length; i++)
-        {
-            biases[i - 64] = double.Parse(values[i]);
-        }
-
-        model = new LinearModel(weights, biases[0]);
-    }
+    private LinearModel model;
 
     public Move Think(Board board, Timer timer)
     {
-        decodeWeightsAndBias();
-        Move[] moves = board.GetLegalMoves();
+        Move[] moves = SortMovesOnHighLevelEval(board.GetLegalMoves(), board);
         Move bestMove = moves[0];
         double alpha = double.MinValue;
         double beta = double.MaxValue;
@@ -103,7 +73,7 @@ public class MyBot : IChessBot
                 bestMove = move;
                 break;
             }
-            
+
             double eval = AlphaBeta(board, 4, alpha, beta, board.IsWhiteToMove);
 
             if (!board.IsWhiteToMove)
@@ -131,18 +101,106 @@ public class MyBot : IChessBot
         return bestMove;
     }
 
+    public class EstimatedEvalSorter : IComparer
+    {
+        Board Board;
+
+        public EstimatedEvalSorter(Board board)
+        {
+            Board = board;
+        }
+
+        // Calls CaseInsensitiveComparer.Compare with the parameters reversed.
+        int IComparer.Compare(Object x, Object y)
+        {
+            Move xMove = (Move)x;
+            Move yMove = (Move)y;
+
+            return estimateForMove(xMove) - estimateForMove(yMove);
+        }
+
+        int estimateForMove(Move move) {
+            Board.MakeMove(move);
+
+            int estimate = 0;
+
+            switch(move.CapturePieceType)
+            {
+                case PieceType.Pawn:
+                    estimate =+ 1;
+                    break;
+                case PieceType.Bishop:
+                case PieceType.Knight:
+                    estimate += 3;
+                    break;
+                case PieceType.Rook:
+                    estimate += 5;
+                    break;
+                case PieceType.Queen:
+                    estimate += 9;
+                    break;
+                case PieceType.King:
+                    estimate += 999;
+                    break;
+            }
+
+            if(Board.IsRepeatedPosition())
+            {
+                estimate = -10;
+            }
+
+            Board.UndoMove(move);
+            return estimate;
+        }
+    }
+
+    private Move[] SortMovesOnHighLevelEval(Move[] moves, Board board)
+    {
+
+        Array.Sort(moves, new EstimatedEvalSorter(board));
+        return moves;
+    }
+
+    private void decodeWeightsAndBias()
+    {
+        StringBuilder decodedWeights = new StringBuilder();
+
+        foreach (ulong hexNumber in weightsAndBiasEncoded)
+        {
+            byte[] bytes = BitConverter.GetBytes(hexNumber);
+            if (BitConverter.IsLittleEndian)
+                Array.Reverse(bytes); // ensures bytes are in the correct order
+
+            string ascii = Encoding.ASCII.GetString(bytes);
+            decodedWeights.Append(ascii);
+        }
+
+        // Split string into separate values
+        string[] values = decodedWeights.ToString().Split(',');
+
+        // Convert first 64 values to weights
+        for (int i = 0; i < 64; i++)
+        {
+            weights[i] = double.Parse(values[i]);
+        }
+
+        model = new LinearModel(weights, double.Parse(values[64]));
+    }
+
 
     private double AlphaBeta(Board node, int depth, double alpha, double beta, bool isMaximizingPlayer)
     {
-        if (depth == 0 || node.GetLegalMoves().Length == 0)
+        var legalMoves = node.GetLegalMoves();
+
+        if (depth == 0 || legalMoves.Length == 0)
         {
-            return Evaluate(node, isMaximizingPlayer);
+            return Evaluate(node);
         }
 
         if (isMaximizingPlayer)
         {
             double maxEval = int.MinValue;
-            foreach (Move child in node.GetLegalMoves())
+            foreach (Move child in legalMoves)
             {
                 node.MakeMove(child);
                 
@@ -179,30 +237,15 @@ public class MyBot : IChessBot
     
     private double[] GetBoardArrayFromBoard(Board board)
     {
-        try
+        double[] pieces = new double[64];
+        for (int i = 0; i < 64; i++)
         {
-            double[] pieces = new double[64];
-            for (int i = 0; i < 64; i++)
-            {
-                Piece piece = board.GetPiece(new Square(i));
-                if (piece != null)
-                {
-                    int pieceVal = GetPieceValue(piece);
-                    pieceVal = piece.IsWhite ? pieceVal : -pieceVal;
-                    pieces[i] = pieceVal;
-                }
-                else
-                {
-                    pieces[i] = 0;
-                }
-            }
-            return pieces;
+            Piece piece = board.GetPiece(new Square(i));
+            int pieceVal = GetPieceValue(piece);
+            pieceVal = piece.IsWhite ? pieceVal : -pieceVal;
+            pieces[i] = pieceVal;
         }
-        catch (Exception e)
-        {
-            Console.WriteLine($"Exception occurred: {e.Message}");
-            return null;
-        }
+        return pieces;
     }
 
     private int GetPieceValue(Piece piece)
@@ -226,9 +269,9 @@ public class MyBot : IChessBot
         }
     }
 
-    private double Evaluate(Board board, bool isBotWhite)
+    private double Evaluate(Board board)
     {
-        return model.Predict(GetBoardArrayFromBoard(board)); // This is just an example.
+        return model.Predict(GetBoardArrayFromBoard(board));
     }
 }
 
