@@ -12,6 +12,8 @@ public class MyBot : IChessBot
         decodeWeightsAndBias();
     }
 
+
+    // Weights encoded (took weights as comma seperated list and convert to hex)
     private ulong[] weightsAndBiasEncoded = new ulong[]
     {
         0x302e303230333230, 0x3736353637343131, 0x343232372c302e30, 0x3231303439333234, 0x3432333037343732,
@@ -55,13 +57,21 @@ public class MyBot : IChessBot
 
     public Move Think(Board board, Timer timer)
     {
-        Move[] moves = SortMovesOnHighLevelEval(board.GetLegalMoves(), board);
+        Move[] moves = board.GetLegalMoves();
         Move bestMove = moves[0];
         double alpha = double.MinValue;
         double beta = double.MaxValue;
         double maxEval = double.MinValue;
         double minEval = double.MaxValue;
 
+        // If over 10 seconds, search at depth 4, otherwise depth 1
+        int depth = timer.MillisecondsRemaining >= 10_000 ? timer.MillisecondsRemaining >= 30_000 ? 5 : 4 : 1;
+
+        // If we branch a lot on the first level, we would most likely branch a lot multiple levels down (in other words, we will decrease the depth).
+        if(moves.Length >= 20) 
+        {
+            depth = Math.Max(1, depth - 1);
+        }
 
         foreach (Move move in moves)
         {
@@ -74,9 +84,27 @@ public class MyBot : IChessBot
                 break;
             }
 
-            double eval = AlphaBeta(board, 4, alpha, beta, board.IsWhiteToMove);
 
-            if (!board.IsWhiteToMove)
+            double eval = AlphaBeta(board, depth, alpha, beta, board.IsWhiteToMove);
+
+            // Make queen moves (in hopefully the opening 50% less likely to be taken
+            if ((move.MovePieceType == PieceType.Queen || move.MovePieceType == PieceType.Rook || move.MovePieceType == PieceType.King) && board.GameMoveHistory.Length <= 15)
+            {
+                eval *= 0.2;
+            }
+
+            if ((move.MovePieceType == PieceType.Knight || move.MovePieceType == PieceType.Bishop) && board.GameMoveHistory.Length <= 15)
+            {
+                eval *= 1.1;
+            }
+
+            if(board.IsRepeatedPosition())
+            {
+                eval *= 0.8;
+            }
+
+
+            if (!board.IsWhiteToMove) // we are the maximizing player (we check for the opposit here, due to the call to 'MakeMove' before
             {
                 if (eval > maxEval)
                 {
@@ -96,87 +124,31 @@ public class MyBot : IChessBot
             alpha = Math.Max(alpha, eval);
             board.UndoMove(move);
         }
-        
-        
+
         return bestMove;
     }
 
-    public class EstimatedEvalSorter : IComparer
+    private string convertHexedArrayToString(ulong[] input)
     {
-        Board Board;
+        StringBuilder decodedText = new StringBuilder();
 
-        public EstimatedEvalSorter(Board board)
-        {
-            Board = board;
-        }
-
-        // Calls CaseInsensitiveComparer.Compare with the parameters reversed.
-        int IComparer.Compare(Object x, Object y)
-        {
-            Move xMove = (Move)x;
-            Move yMove = (Move)y;
-
-            return estimateForMove(xMove) - estimateForMove(yMove);
-        }
-
-        int estimateForMove(Move move) {
-            Board.MakeMove(move);
-
-            int estimate = 0;
-
-            switch(move.CapturePieceType)
-            {
-                case PieceType.Pawn:
-                    estimate =+ 1;
-                    break;
-                case PieceType.Bishop:
-                case PieceType.Knight:
-                    estimate += 3;
-                    break;
-                case PieceType.Rook:
-                    estimate += 5;
-                    break;
-                case PieceType.Queen:
-                    estimate += 9;
-                    break;
-                case PieceType.King:
-                    estimate += 999;
-                    break;
-            }
-
-            if(Board.IsRepeatedPosition())
-            {
-                estimate = -10;
-            }
-
-            Board.UndoMove(move);
-            return estimate;
-        }
-    }
-
-    private Move[] SortMovesOnHighLevelEval(Move[] moves, Board board)
-    {
-
-        Array.Sort(moves, new EstimatedEvalSorter(board));
-        return moves;
-    }
-
-    private void decodeWeightsAndBias()
-    {
-        StringBuilder decodedWeights = new StringBuilder();
-
-        foreach (ulong hexNumber in weightsAndBiasEncoded)
+        foreach (ulong hexNumber in input)
         {
             byte[] bytes = BitConverter.GetBytes(hexNumber);
             if (BitConverter.IsLittleEndian)
                 Array.Reverse(bytes); // ensures bytes are in the correct order
 
             string ascii = Encoding.ASCII.GetString(bytes);
-            decodedWeights.Append(ascii);
+            decodedText.Append(ascii);
         }
 
+        return decodedText.ToString();
+    }
+
+    private void decodeWeightsAndBias()
+    {
         // Split string into separate values
-        string[] values = decodedWeights.ToString().Split(',');
+        string[] values = convertHexedArrayToString(weightsAndBiasEncoded).Split(',');
 
         // Convert first 64 values to weights
         for (int i = 0; i < 64; i++)
@@ -194,17 +166,25 @@ public class MyBot : IChessBot
 
         if (depth == 0 || legalMoves.Length == 0)
         {
-            return Evaluate(node);
+            double eval = Evaluate(node);
+
+            return eval;
         }
 
-        if (isMaximizingPlayer)
+        if (node.IsWhiteToMove)
         {
             double maxEval = int.MinValue;
             foreach (Move child in legalMoves)
             {
                 node.MakeMove(child);
-                
-                double eval = AlphaBeta(node, depth - 1, alpha, beta, false);
+
+                if(node.IsInCheckmate()) // white (our bot), just made checkmate
+                {
+                    node.UndoMove(child);
+                    return 999;
+                }
+
+                double eval = AlphaBeta(node, depth - 1, alpha, beta, isMaximizingPlayer);
                 maxEval = Math.Max(maxEval, eval);
                 alpha = Math.Max(alpha, eval);
                 
@@ -222,7 +202,14 @@ public class MyBot : IChessBot
             {
                 node.MakeMove(child);
 
-                double eval = AlphaBeta(node, depth - 1, alpha, beta, true);
+                if (node.IsInCheckmate()) 
+                {
+                    node.UndoMove(child);
+                    // we can always return -999. Suppose our bot is playing white - if we loose (i.e. we get checkmated like beneath), -999 is supper dupper bad. If we would play as black, and checkmate here, -999 is good (as is checkmate :).
+                    return -999;
+                }
+
+                double eval = AlphaBeta(node, depth - 1, alpha, beta, isMaximizingPlayer);
                 minEval = Math.Min(minEval, eval);
                 beta = Math.Min(beta, eval);
                 node.UndoMove(child);

@@ -35,6 +35,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Remove="src\SF Bot\" />
+    <None Remove="src\Test Bot\" />
+  </ItemGroup>
+  <ItemGroup>
     <None Update="resources\Fens.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -51,6 +55,8 @@
 
   <ItemGroup>
     <Folder Include="src\Framework\Chess\" />
+    <Folder Include="src\SF Bot\" />
+    <Folder Include="src\Test Bot\" />
   </ItemGroup>
 
   <ItemGroup>
