@@ -187,13 +187,12 @@ public class MyBot : IChessBot
     {
         DecodeWeightsAndBias();
     }
+
     private void DecodeWeightsAndBias()
     {
         string[] values = ConvertHexedArrayToString().Split(',');
         for (int i = 0; i < 64; i++)
-        {
             _weights[i] = double.Parse(values[i]);
-        }
 
         _model = new LinearModel(_weights, double.Parse(values[64]));
     }
@@ -239,7 +238,6 @@ public class MyBot : IChessBot
             }
 
             if (board.IsDraw())
-            {
                 // From testing, it seems like our bot basically never gets in
                 // situation where drawing is the best option (i.e. we would
                 // loose otherwise), but the bot often gets into situation where
@@ -250,7 +248,6 @@ public class MyBot : IChessBot
                     board.UndoMove(move);
                     continue;
                 }
-            }
 
             double eval = AlphaBeta(board, depth, alpha, beta, board.IsWhiteToMove);
 
@@ -259,21 +256,17 @@ public class MyBot : IChessBot
             // we are the maximizing player (we check for the opposit here, due
             // to the call to 'MakeMove' before
             if (!board.IsWhiteToMove)
-            {
+
                 if (eval > maxEval)
                 {
                     maxEval = eval;
                     bestMove = move;
                 }
-            }
-            else
-            {
-                if (eval < minEval)
+                else if (eval < minEval)
                 {
                     minEval = eval;
                     bestMove = move;
                 }
-            }
 
             alpha = Math.Max(alpha, eval);
             board.UndoMove(move);
@@ -281,7 +274,6 @@ public class MyBot : IChessBot
 
         return bestMove;
     }
-
 
     private static int GetDepth(int milliSecondsRemaining, int numberOfMovesAvailable)
     {
@@ -297,9 +289,7 @@ public class MyBot : IChessBot
         // lot multiple levels down (in other words, we will decrease the depth
         // (to make the bot not timout as much)).
         if (numberOfMovesAvailable >= 20)
-        {
             depth = Math.Max(1, depth - 1);
-        }
 
         return depth;
     }
@@ -316,33 +306,52 @@ public class MyBot : IChessBot
     private static double ApplyEvalRules(Move move, double eval, Board board)
     {
         int numberOfMovesInGame = board.PlyCount;
-
+        PieceType movePieceType = move.MovePieceType;
+        int targetFile = move.TargetSquare.File;
         // Make queen moves (in hopefully the opening 50% less likely to be taken
-        if (
-            (
-                move.MovePieceType == PieceType.Queen
-                || move.MovePieceType == PieceType.Rook
-                || move.MovePieceType == PieceType.King
-            )
-            && numberOfMovesInGame <= 15
-        )
+        if (numberOfMovesInGame <= 15)
         {
-            eval *= 0.2;
+            if (
+                Array.Exists(
+                    new PieceType[3] { PieceType.Queen, PieceType.King, PieceType.Rook },
+                    element => element == movePieceType
+                )
+            )
+                eval *= 0.2;
+
+            
+
+            // side note: why does C# formatting look like this xD?
+            if (movePieceType == PieceType.Knight || movePieceType == PieceType.Bishop)
+                eval *= 1.1;
+
+            // Discourage extending to much in the opening
+            if (move.TargetSquare.Rank > 4)
+                eval *= 0.5;
         }
 
-        // side note: why does C# formatting look like this xD?
-        if (
-            (move.MovePieceType == PieceType.Knight || move.MovePieceType == PieceType.Bishop)
-            && numberOfMovesInGame <= 15
-        )
+        // Has this piece been moved in the opening before (try preventing shifting pieces around repeatadly).
+        bool isRepeatedPiece = false;
+        int index = 0;
+        foreach (Move historicalMove in board.GameMoveHistory)
         {
-            eval *= 1.1;
+            if (index == board.GameMoveHistory.Length - 1) continue;
+            bool isSamePieceType = historicalMove.MovePieceType == move.MovePieceType;
+            bool isSameSide = (historicalMove.StartSquare.File < 4) == (move.StartSquare.File < 4);
+
+            if (isSamePieceType && isSameSide)
+                isRepeatedPiece = true;
+            index++;
         }
+
+        if (isRepeatedPiece)
+            eval *= 0.2;
+
+        if (movePieceType == PieceType.Knight && (targetFile == 0 || targetFile == 7))
+            eval *= 0.7;
 
         if (board.IsRepeatedPosition())
-        {
             eval *= 0.8;
-        }
 
         return eval;
     }
@@ -433,23 +442,16 @@ public class MyBot : IChessBot
 
     private int GetPieceValue(Piece piece)
     {
-        switch (piece.PieceType)
+        return piece.PieceType switch
         {
-            case PieceType.Pawn:
-                return 1;
-            case PieceType.Bishop:
-                return 2;
-            case PieceType.Knight:
-                return 3;
-            case PieceType.Rook:
-                return 4;
-            case PieceType.Queen:
-                return 5;
-            case PieceType.King:
-                return 6;
-            default:
-                return 0;
-        }
+            PieceType.Pawn => 1,
+            PieceType.Bishop => 2,
+            PieceType.Knight => 3,
+            PieceType.Rook => 4,
+            PieceType.Queen => 5,
+            PieceType.King => 6,
+            _ => 0
+        };
     }
 
     private double Evaluate(Board board)
@@ -474,9 +476,8 @@ public class LinearModel
         double result = Bias;
 
         for (int i = 0; i < Weights.Length; i++)
-        {
             result += Weights[i] * inputs[i];
-        }
+
         return result;
     }
 }
