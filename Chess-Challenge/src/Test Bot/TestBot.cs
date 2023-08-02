@@ -3,7 +3,7 @@ using System;
 
 public class TestBot : IChessBot
 {
-    public Move Think(Board board, Timer timer)
+    public Move Think(Board board, Timer timer, Config config)
     {
         Move[] allMoves = board.GetLegalMoves();
         Random rng = new();

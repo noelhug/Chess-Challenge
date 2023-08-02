@@ -460,4 +460,42 @@ namespace ChessChallenge.API
 		}
 
     }
+
+	public sealed class Config
+    {
+        public Config(int numOpeningMoves, int numMovesRepeatedPieceMovement, double earlyQueenMovesPenalty, double earlyOverextendingPenalty, double earlyKnighBishopDevelopmentBonus, double repeatedPieceMovePenalty, double knightOnEdgePenalty, double repeatedPositionPenalty)
+        {
+            NumOpeningMoves = numOpeningMoves;
+            NumMovesRepeatedPieceMovement = numMovesRepeatedPieceMovement;
+            EarlyQueenMovesPenalty = earlyQueenMovesPenalty;
+            EarlyOverextendingPenalty = earlyOverextendingPenalty;
+            EarlyKnighBishopDevelopmentBonus = earlyKnighBishopDevelopmentBonus;
+            RepeatedPieceMovePenalty = repeatedPieceMovePenalty;
+            KnightOnEdgePenalty = knightOnEdgePenalty;
+            RepeatedPositionPenalty = repeatedPositionPenalty;
+        }
+
+        public int NumOpeningMoves { get; set; }
+        public int NumMovesRepeatedPieceMovement { get; set; }
+        public double EarlyQueenMovesPenalty { get; set; }
+        public double EarlyOverextendingPenalty { get; set; }
+        public double EarlyKnighBishopDevelopmentBonus { get; set; }
+        public double RepeatedPieceMovePenalty { get; set; }
+        public double KnightOnEdgePenalty { get; set; }
+        public double RepeatedPositionPenalty { get; set; }
+
+        public override string ToString()
+        {
+            return base.ToString() + ": " + String.Format("Num Opening Moves: {0}\n" +
+				"Num Moves RepeatedPieceMovment: {1},\n" +
+                "EarlyQueenMovesPenalty: {2}\n" +
+                "EarlyOverextendingPenalty: {3}\n" +
+                "EarlyKnighBishopDevelopmentBonus: {4}\n" +
+                "RepeatedPieceMovePenalty: {5}\n" +
+                "KnightOnEdgePenalty: {6}\n" +
+                "RepeatedPositionPenalty: {7}", NumOpeningMoves, NumMovesRepeatedPieceMovement, EarlyQueenMovesPenalty, EarlyOverextendingPenalty, EarlyOverextendingPenalty,
+				RepeatedPieceMovePenalty, KnightOnEdgePenalty, RepeatedPositionPenalty);
+        }
+    }
+
 }

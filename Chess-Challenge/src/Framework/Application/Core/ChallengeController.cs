@@ -143,13 +143,38 @@ namespace ChessChallenge.Application
             //Console.WriteLine("Exitting thread: " + threadID);
         }
 
+        private static double GetPseudoDoubleWithinRange(Random random, double lowerBound, double upperBound)
+        {
+            var rDouble = random.NextDouble();
+            var rRangeDouble = rDouble * (upperBound - lowerBound) + lowerBound;
+            return rRangeDouble;
+        }
+
+        private API.Config GetConfig()
+        {
+            var random = new Random();
+
+            int NumOpeningMoves = random.Next(0, 100);
+            int NumMovesRepeatedPieceMovement = random.Next(0, 100);
+            double EarlyQueenMovesPenalty = GetPseudoDoubleWithinRange(random, 0.0, 2.0);
+            double EarlyOverextendingPenalty = GetPseudoDoubleWithinRange(random, 0.0, 2.0);
+            double EarlyKnighBishopDevelopmentBonus = GetPseudoDoubleWithinRange(random, 0.0, 2.0);
+            double RepeatedPieceMovePenalty = GetPseudoDoubleWithinRange(random, 0.0, 2.0);
+            double KnightOnEdgePenalty = GetPseudoDoubleWithinRange(random, 0.0, 2.0);
+            double RepeatedPositionPenalty = GetPseudoDoubleWithinRange(random, 0.0, 2.0);
+
+            return new(NumOpeningMoves, NumMovesRepeatedPieceMovement,
+                EarlyQueenMovesPenalty, EarlyOverextendingPenalty, EarlyKnighBishopDevelopmentBonus, RepeatedPieceMovePenalty,
+                KnightOnEdgePenalty, RepeatedPositionPenalty);
+        }
+
         Move GetBotMove()
         {
             API.Board botBoard = new(board);
             try
             {
                 API.Timer timer = new(PlayerToMove.TimeRemainingMs, PlayerNotOnMove.TimeRemainingMs, GameDurationMilliseconds, IncrementMilliseconds);
-                API.Move move = PlayerToMove.Bot.Think(botBoard, timer);
+                API.Move move = PlayerToMove.Bot.Think(botBoard, timer, GetConfig());
                 return new Move(move.RawValue);
             }
             catch (Exception e)
@@ -163,7 +188,7 @@ namespace ChessChallenge.Application
 
 
 
-        void NotifyTurnToMove()
+         void NotifyTurnToMove()
         {
             //playerToMove.NotifyTurnToMove(board);
             if (PlayerToMove.IsHuman)
@@ -206,7 +231,7 @@ namespace ChessChallenge.Application
             }
         }
 
-        ChessPlayer CreatePlayer(PlayerType type)
+       ChessPlayer CreatePlayer(PlayerType type)
         {
             return type switch
             {

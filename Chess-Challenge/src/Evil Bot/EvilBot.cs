@@ -10,7 +10,7 @@ namespace ChessChallenge.Example
         // Piece values: null, pawn, knight, bishop, rook, queen, king
         int[] pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
 
-        public Move Think(Board board, Timer timer)
+        public Move Think(Board board, Timer timer, API.Config config)
         {
             Move[] allMoves = board.GetLegalMoves();
 

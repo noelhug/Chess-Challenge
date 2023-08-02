@@ -4,6 +4,9 @@
 using System;
 using System.Text;
 using ChessChallenge.API;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.IO;
 
 public class MyBot : IChessBot
 {
@@ -182,6 +185,7 @@ public class MyBot : IChessBot
 
     private double[] _weights = new double[64];
     private LinearModel _model;
+    private Config _config;
 
     public MyBot()
     {
@@ -215,8 +219,9 @@ public class MyBot : IChessBot
         return decodedText.ToString();
     }
 
-    public Move Think(Board board, Timer timer)
+    public Move Think(Board board, Timer timer, Config config)
     {
+        _config = config;
         Move[] moves = board.GetLegalMoves();
         Move bestMove = moves[0];
 
@@ -303,13 +308,13 @@ public class MyBot : IChessBot
     ///  1 output node). The network alone has many quirks (very much so likes to
     ///  move the king to the opponent pieces in the opening).
     /// </summary>
-    private static double ApplyEvalRules(Move move, double eval, Board board)
+    private double ApplyEvalRules(Move move, double eval, Board board)
     {
         int numberOfMovesInGame = board.PlyCount;
         PieceType movePieceType = move.MovePieceType;
         int targetFile = move.TargetSquare.File;
         // Make queen moves (in hopefully the opening 50% less likely to be taken
-        if (numberOfMovesInGame <= 15)
+        if (numberOfMovesInGame <= _config.NumOpeningMoves)
         {
             if (
                 Array.Exists(
@@ -317,17 +322,17 @@ public class MyBot : IChessBot
                     element => element == movePieceType
                 )
             )
-                eval *= 0.2;
+                eval *= _config.EarlyQueenMovesPenalty;
 
             
 
             // side note: why does C# formatting look like this xD?
             if (movePieceType == PieceType.Knight || movePieceType == PieceType.Bishop)
-                eval *= 1.1;
+                eval *= _config.EarlyKnighBishopDevelopmentBonus;
 
             // Discourage extending to much in the opening
             if (move.TargetSquare.Rank > 4)
-                eval *= 0.5;
+                eval *= _config.EarlyOverextendingPenalty;
         }
 
         // Has this piece been moved in the opening before (try preventing shifting pieces around repeatadly).
@@ -345,13 +350,13 @@ public class MyBot : IChessBot
         }
 
         if (isRepeatedPiece)
-            eval *= 0.2;
+            eval *= _config.RepeatedPieceMovePenalty;
 
         if (movePieceType == PieceType.Knight && (targetFile == 0 || targetFile == 7))
-            eval *= 0.7;
+            eval *= _config.KnightOnEdgePenalty;
 
         if (board.IsRepeatedPosition())
-            eval *= 0.8;
+            eval *= _config.RepeatedPositionPenalty;
 
         return eval;
     }

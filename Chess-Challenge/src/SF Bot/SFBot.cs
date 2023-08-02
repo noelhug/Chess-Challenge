@@ -64,7 +64,7 @@ public class SFBot : IChessBot
         }
     }
 
-    public Move Think(Board board, Timer timer)
+    public Move Think(Board board, Timer timer, ChessChallenge.API.Config config)
     {
         Ins().WriteLine("ucinewgame");
         Ins().WriteLine($"position fen {board.GetFenString()}");

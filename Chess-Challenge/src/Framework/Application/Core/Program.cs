@@ -2,6 +2,7 @@
 using System.IO;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System;
 
 namespace ChessChallenge.Application
 {
@@ -12,6 +13,11 @@ namespace ChessChallenge.Application
 
         public static void Main()
         {
+            //ChallengeControllerOptimizer optimusPrime = new();
+
+            //API.Config bestFound = optimusPrime.OptimizeConfig();
+
+            //Console.WriteLine("Best Found: " + bestFound);
             Vector2 loadedWindowSize = GetSavedWindowSize();
             int screenWidth = (int)loadedWindowSize.X;
             int screenHeight = (int)loadedWindowSize.Y;
