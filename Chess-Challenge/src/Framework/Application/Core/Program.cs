@@ -13,50 +13,50 @@ namespace ChessChallenge.Application
 
         public static void Main()
         {
-            //ChallengeControllerOptimizer optimusPrime = new();
+            ChallengeControllerOptimizer optimusPrime = new();
 
-            //API.Config bestFound = optimusPrime.OptimizeConfig();
+            API.Config bestFound = optimusPrime.OptimizeConfig();
 
-            //Console.WriteLine("Best Found: " + bestFound);
-            Vector2 loadedWindowSize = GetSavedWindowSize();
-            int screenWidth = (int)loadedWindowSize.X;
-            int screenHeight = (int)loadedWindowSize.Y;
+            Console.WriteLine("Best Found: " + bestFound);
+            //Vector2 loadedWindowSize = GetSavedWindowSize();
+            //int screenWidth = (int)loadedWindowSize.X;
+            //int screenHeight = (int)loadedWindowSize.Y;
 
-            if (hideRaylibLogs)
-            {
-                unsafe
-                {
-                    Raylib.SetTraceLogCallback(&LogCustom);
-                }
-            }
+            //if (hideRaylibLogs)
+            //{
+            //    unsafe
+            //    {
+            //        Raylib.SetTraceLogCallback(&LogCustom);
+            //    }
+            //}
 
-            Raylib.InitWindow(screenWidth, screenHeight, "Chess Coding Challenge");
-            Raylib.SetTargetFPS(60);
+            //Raylib.InitWindow(screenWidth, screenHeight, "Chess Coding Challenge");
+            //Raylib.SetTargetFPS(60);
 
-            UpdateCamera(screenWidth, screenHeight);
+            //UpdateCamera(screenWidth, screenHeight);
 
-            ChallengeController controller = new();
+            //ChallengeController controller = new();
 
-            while (!Raylib.WindowShouldClose())
-            {
-                Raylib.BeginDrawing();
-                Raylib.ClearBackground(new Color(22, 22, 22, 255));
-                Raylib.BeginMode2D(cam);
+            //while (!Raylib.WindowShouldClose())
+            //{
+            //    Raylib.BeginDrawing();
+            //    Raylib.ClearBackground(new Color(22, 22, 22, 255));
+            //    Raylib.BeginMode2D(cam);
 
-                controller.Update();
-                controller.Draw();
+            //    controller.Update();
+            //    controller.Draw();
 
-                Raylib.EndMode2D();
+            //    Raylib.EndMode2D();
 
-                controller.DrawOverlay();
+            //    controller.DrawOverlay();
 
-                Raylib.EndDrawing();
-            }
+            //    Raylib.EndDrawing();
+            //}
 
-            Raylib.CloseWindow();
+            //Raylib.CloseWindow();
 
-            controller.Release();
-            UIHelper.Release();
+            //controller.Release();
+            //UIHelper.Release();
         }
 
         public static void SetWindowSize(Vector2 size)

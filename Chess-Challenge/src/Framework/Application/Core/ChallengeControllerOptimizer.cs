@@ -40,8 +40,8 @@ namespace ChessChallenge.Application
 
         public Config OptimizeConfig()
         {
-            int populationSize = 10;
-            int generations = 10;
+            int populationSize = 30 ;
+            int generations = 15;
             double mutationRate = 0.05;
 
             List<Individual> population = InitializePopulation(populationSize);
@@ -53,11 +53,14 @@ namespace ChessChallenge.Application
                 // Update Progress Bar
                 DrawProgressBar((double)generation / generations);
                 EvaluatePopulation(population);
-                List<Individual> selected = SelectConfigurations(population);
-                List<Individual> offspring = Crossover(selected, population.Count - selected.Count);
-                Mutate(offspring, mutationRate);
-                ReplaceWorstConfigurations(population, offspring, population.Count);
 
+                // Do the evoluation stuff only upuntil the last epsiod (we lose the win/lose/draw stats otherwise)
+                if(generation < generations - 2) { 
+                    List<Individual> selected = SelectConfigurations(population);
+                    List<Individual> offspring = Crossover(selected, population.Count - selected.Count);
+                    Mutate(offspring, mutationRate);
+                    ReplaceWorstConfigurations(population, offspring, population.Count);
+                }
             }
 
             // Ensure 100% completion
@@ -90,11 +93,12 @@ namespace ChessChallenge.Application
         {
             StringBuilder csvContent = new StringBuilder();
             csvContent.AppendLine("NumOpeningMoves,NumMovesRepeatedPieceMovement,EarlyQueenMovesPenalty,EarlyOverextendingPenalty,EarlyKnighBishopDevelopmentBonus,RepeatedPieceMovePenalty,KnightOnEdgePenalty,RepeatedPositionPenalty,wins,loses,draws");
-
-            int topN = Math.Min(10, population.Count);
+            Console.WriteLine("NumOpeningMoves,NumMovesRepeatedPieceMovement,EarlyQueenMovesPenalty,EarlyOverextendingPenalty,EarlyKnighBishopDevelopmentBonus,RepeatedPieceMovePenalty,KnightOnEdgePenalty,RepeatedPositionPenalty,wins,loses,draws");
+            int topN = population.Count;
             for (int i = 0; i < topN; i++)
             {
                 Config config = population[i].Config;
+                Console.WriteLine($"{config.NumOpeningMoves},{config.NumMovesRepeatedPieceMovement},{config.EarlyQueenMovesPenalty},{config.EarlyOverextendingPenalty},{config.EarlyKnighBishopDevelopmentBonus},{config.RepeatedPieceMovePenalty},{config.KnightOnEdgePenalty},{config.RepeatedPositionPenalty},{population[i].Stats.NumWins},{population[i].Stats.NumLosses},{population[i].Stats.NumDraws}");
                 csvContent.AppendLine($"{config.NumOpeningMoves},{config.NumMovesRepeatedPieceMovement},{config.EarlyQueenMovesPenalty},{config.EarlyOverextendingPenalty},{config.EarlyKnighBishopDevelopmentBonus},{config.RepeatedPieceMovePenalty},{config.KnightOnEdgePenalty},{config.RepeatedPositionPenalty},{population[i].Stats.NumWins},{population[i].Stats.NumLosses},{population[i].Stats.NumDraws}");
             }
 
@@ -230,8 +234,10 @@ namespace ChessChallenge.Application
         private void EvaluatePopulation(List<Individual> population)
         {
             var tasks = new List<Task>();
-            foreach (Individual individual in population)
+            for(int i = 0; i < population.Count(); i++ )
             {
+                Individual individual = population[i];
+                individual.Stats = new();
                 var task = Task.Factory.StartNew(() => EvaluateIndividual(individual), TaskCreationOptions.LongRunning);
                 tasks.Add(task);
             }
@@ -353,7 +359,7 @@ namespace ChessChallenge.Application
 
         public int BotMatchGameIndex { get; set; }
         public API.Config Config;
-        public BotMatchStats Stats { get; }
+        public BotMatchStats Stats { get; set; }
         public AutoResetEvent BotTaskWaitHandle { get; }
     }
 
