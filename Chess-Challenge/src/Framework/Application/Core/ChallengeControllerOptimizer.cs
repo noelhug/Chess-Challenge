@@ -18,11 +18,16 @@ using ChessChallenge.API;
 using ChessChallenge.Example;
 using System.Collections;
 using static ChessChallenge.Application.ChallengeController;
+using System.Diagnostics;
 
 namespace ChessChallenge.Application
 {
     public class ChallengeControllerOptimizer
     {
+        private readonly Process _stockfishProcess;
+        private StreamWriter Ins() => _stockfishProcess.StandardInput;
+        private StreamReader Outs() => _stockfishProcess.StandardOutput;
+
         public enum PlayerType
         {
             MyBot,
@@ -35,265 +40,273 @@ namespace ChessChallenge.Application
         public ChallengeControllerOptimizer()
         {
             rng = new Random();
-            botMatchStartFens = FileHelper.ReadResourceFile("Fens.txt").Split('\n').Where(fen => fen.Length > 0).ToArray();
+            botMatchStartFens = FileHelper
+                .ReadResourceFile("Fens.txt")
+                .Split('\n')
+                .Where(fen => fen.Length > 0)
+                .ToArray();
+
+            // Path to the executable
+            const string stockfishExe = "/opt/homebrew/bin/stockfish";
+
+            if (stockfishExe != null)
+            {
+                _stockfishProcess = new Process();
+                _stockfishProcess.StartInfo.RedirectStandardOutput = true;
+                _stockfishProcess.StartInfo.RedirectStandardInput = true;
+                _stockfishProcess.StartInfo.FileName = stockfishExe;
+                _stockfishProcess.Start();
+                Ins().WriteLine("uci");
+                var isOk = false;
+
+                while (Outs().ReadLine() is { } line)
+                {
+                    if (line != "uciok") continue;
+                    isOk = true;
+                    break;
+                }
+                if (!isOk)
+                {
+                    throw new Exception("Failed to communicate with stockfish");
+                }
+                Ins().WriteLine($"setoption name Skill Level value 20");
+            }
+        }
+
+        class CompareTuple : IComparer<Tuple<double, Individual>>
+        {
+            public int Compare(Tuple<double, Individual> x, Tuple<double, Individual> y)
+            {
+                int result = y.Item1.CompareTo(x.Item1);
+                if (result == 0) return 1;  // Handle duplication
+                return result;
+            }
         }
 
         public Config OptimizeConfig()
         {
-            int populationSize = 30 ;
-            int generations = 15;
-            double mutationRate = 0.05;
+            int N = 100;
+            SortedSet<Tuple<double, Individual>> minStack = new SortedSet<Tuple<double, Individual>>(new CompareTuple());
+            object syncLock = new object();
 
-            List<Individual> population = InitializePopulation(populationSize);
-
-            Console.WriteLine("Optimizing Configuration:");
-
-            for (int generation = 0; generation < generations; generation++)
+            ParallelOptions options = new ParallelOptions { MaxDegreeOfParallelism = 8 };
+            Parallel.For(0, N, options, i =>
             {
-                // Update Progress Bar
-                DrawProgressBar((double)generation / generations);
-                EvaluatePopulation(population);
+                var config = GetConfig();
+                var individual = new Individual(config);
+                var evaluation = EvaluateIndividual(individual);
 
-                // Do the evoluation stuff only upuntil the last epsiod (we lose the win/lose/draw stats otherwise)
-                if(generation < generations - 2) { 
-                    List<Individual> selected = SelectConfigurations(population);
-                    List<Individual> offspring = Crossover(selected, population.Count - selected.Count);
-                    Mutate(offspring, mutationRate);
-                    ReplaceWorstConfigurations(population, offspring, population.Count);
+                individual.AverageCentipawnLoss = evaluation;
+
+
+                lock (syncLock)
+                {
+                    // We multiply evaluation by -1 to simulate a min stack since SortedSet sorts in ascending order
+                    minStack.Add(Tuple.Create(-evaluation, individual));
+                    WriteConfigToCsv(individual);  // Write the individual's config to CSV
                 }
-            }
+            });
 
-            // Ensure 100% completion
-            DrawProgressBar(1);
-
-            Config bestConfig = population[0].Config;
-
-            // Write the best configuration to a JSON file
-            string json = JsonSerializer.Serialize(bestConfig);
-            string path = Path.Combine(Environment.CurrentDirectory, "Resources", "bestResult.json");
-            File.WriteAllText(path, json);
-
-
-
-            // Write the top 10 configurations to a CSV file
-            string csvPath = Path.Combine(Environment.CurrentDirectory, "Resources", "topTenConfigs.csv");
-            SaveTopTenConfigsToCsv(population, csvPath);
-
-            Console.WriteLine("\nOptimization complete. Best configuration saved to 'bestResult.json'. Top 10 configurations saved to 'topTenConfigs.csv'.");
-
-
-
-            Console.WriteLine("\nOptimization complete. Best configuration saved to 'bestResult.json'.");
-
-
-            return bestConfig;
-        }
-
-        private void SaveTopTenConfigsToCsv(List<Individual> population, string path)
-        {
-            StringBuilder csvContent = new StringBuilder();
-            csvContent.AppendLine("NumOpeningMoves,NumMovesRepeatedPieceMovement,EarlyQueenMovesPenalty,EarlyOverextendingPenalty,EarlyKnighBishopDevelopmentBonus,RepeatedPieceMovePenalty,KnightOnEdgePenalty,RepeatedPositionPenalty,wins,loses,draws");
-            Console.WriteLine("NumOpeningMoves,NumMovesRepeatedPieceMovement,EarlyQueenMovesPenalty,EarlyOverextendingPenalty,EarlyKnighBishopDevelopmentBonus,RepeatedPieceMovePenalty,KnightOnEdgePenalty,RepeatedPositionPenalty,wins,loses,draws");
-            int topN = population.Count;
-            for (int i = 0; i < topN; i++)
+            Console.WriteLine("Bottom 10 Individuals:");
+            int count = 0;
+            foreach (var tuple in minStack)
             {
-                Config config = population[i].Config;
-                Console.WriteLine($"{config.NumOpeningMoves},{config.NumMovesRepeatedPieceMovement},{config.EarlyQueenMovesPenalty},{config.EarlyOverextendingPenalty},{config.EarlyKnighBishopDevelopmentBonus},{config.RepeatedPieceMovePenalty},{config.KnightOnEdgePenalty},{config.RepeatedPositionPenalty},{population[i].Stats.NumWins},{population[i].Stats.NumLosses},{population[i].Stats.NumDraws}");
-                csvContent.AppendLine($"{config.NumOpeningMoves},{config.NumMovesRepeatedPieceMovement},{config.EarlyQueenMovesPenalty},{config.EarlyOverextendingPenalty},{config.EarlyKnighBishopDevelopmentBonus},{config.RepeatedPieceMovePenalty},{config.KnightOnEdgePenalty},{config.RepeatedPositionPenalty},{population[i].Stats.NumWins},{population[i].Stats.NumLosses},{population[i].Stats.NumDraws}");
+                if (count++ == 10) break;
+                Console.WriteLine("Config: \n" + tuple.Item2.Config.ToString());
+                Console.WriteLine("Average Centipawn Loss: " + -tuple.Item1);
             }
 
-            File.WriteAllText(path, csvContent.ToString());
+            return minStack.Last().Item2.Config;
         }
 
-        private void DrawProgressBar(double proportionComplete)
+        private void WriteConfigToCsv(Individual individual, string filePath = "configs.csv")
         {
-            Console.CursorLeft = 0;
-            Console.Write("[");
-            int totalBars = 30;
-            int numberOfBarsToDraw = (int)(totalBars * proportionComplete);
-            Console.Write(new string('=', numberOfBarsToDraw));
-            Console.Write(new string(' ', totalBars - numberOfBarsToDraw));
-            Console.Write("]");
-        }
-
-        private void ReplaceWorstConfigurations(List<Individual> population, List<Individual> offspring, int populationSize)
-        {
-            // Combine the population and offspring
-            List<Individual> combined = new List<Individual>(population);
-            combined.AddRange(offspring);
-
-            // Rank the combined list
-            combined.Sort(CompareIndividuals);
-
-            // Take the top N individuals, where N is the original population size
-            population.Clear();
-            population.AddRange(combined.Take(populationSize));
-        }
-
-        private void Mutate(List<Individual> offspring, double mutationRate)
-        {
-            foreach(Individual individual in offspring)
+            // If file doesn't exist, create it and write the header
+            if (!File.Exists(filePath))
             {
-                Config config = individual.Config;
-
-                if (rng.NextDouble() <= mutationRate)
-                    config.NumOpeningMoves += randomBool() ? 1 : -1;
-
-                if (rng.NextDouble() <= mutationRate)
-                    config.NumMovesRepeatedPieceMovement += randomBool() ? 1 : -1;
-
-                if (randomBool())
-                    config.EarlyQueenMovesPenalty += randomBool() ? mutationRate : -mutationRate;
-
-                if (randomBool())
-                    config.EarlyOverextendingPenalty += randomBool() ? mutationRate : -mutationRate;
-
-                if (randomBool())
-                    config.EarlyKnighBishopDevelopmentBonus += randomBool() ? mutationRate : -mutationRate;
-
-                if (randomBool())
-                    config.RepeatedPieceMovePenalty += randomBool() ? mutationRate : -mutationRate;
-
-                if (randomBool())
-                    config.KnightOnEdgePenalty += randomBool() ? mutationRate : -mutationRate;
-
-                if (randomBool())
-                    config.RepeatedPositionPenalty += randomBool() ? mutationRate : -mutationRate;
+                string header = "NumOpeningMoves,NumMovesRepeatedPieceMovement,EarlyQueenMovesPenalty,EarlyOverextendingPenalty,EarlyKnighBishopDevelopmentBonus,RepeatedPieceMovePenalty,KnightOnEdgePenalty,RepeatedPositionPenalty,AverageCentipawnLoss";
+                File.WriteAllText(filePath, header + Environment.NewLine);
             }
+
+            // Create a line for the current individual's config
+            string line = string.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8}",
+                individual.Config.NumOpeningMoves,
+                individual.Config.NumMovesRepeatedPieceMovement,
+                individual.Config.EarlyQueenMovesPenalty,
+                individual.Config.EarlyOverextendingPenalty,
+                individual.Config.EarlyKnighBishopDevelopmentBonus,
+                individual.Config.RepeatedPieceMovePenalty,
+                individual.Config.KnightOnEdgePenalty,
+                individual.Config.RepeatedPositionPenalty,
+                individual.AverageCentipawnLoss
+            );
+
+            // Append the line to the file
+            File.AppendAllText(filePath, line + Environment.NewLine);
         }
 
-        private List<Individual> Crossover(List<Individual> selected, int offspringCount)
+        private double GetStockfishEvaluation(Board board, API.Timer timer)
         {
+            try
+            { 
+                Ins().WriteLine("ucinewgame");
+                Ins().WriteLine($"position fen {board.RepetitionPositionHistoryFen.Peek()}");
+                var timeString = board.IsWhiteToMove ? "wtime" : "btime";
+                Ins().WriteLine($"go depth 1");
+                double? evalScore = null;
 
-            List<Individual> offspring = new List<Individual>();
+                while (Outs().ReadLine() is { } line)
+                {
+                    if (line.Contains("score cp "))
+                    {
+                        var parts = line.Split();
+                        for (int i = 0; i < parts.Length; i++)
+                        {
+                            if (parts[i] == "score" && parts[i + 1] == "cp" && i + 2 < parts.Length)
+                            {
+                                if (double.TryParse(parts[i + 2], out double score))
+                                {
+                                    evalScore = score; // Convert centipawns to pawns.
+                                    break;
+                                }
+                            }
+                        }
+                    }
 
-            // Repeat until enough offspring are created
-            for (int i = 0; i < offspringCount; i++)
+                    if (line.StartsWith("bestmove"))
+                    {
+                        // Exit loop when Stockfish provides the best move.
+                        break;
+                    }
+                }
+
+                if (!evalScore.HasValue)
+                {
+                    return 0;
+                }
+                return evalScore.Value;
+            } catch (Exception)
             {
-                Individual parent1 = SelectParent(selected);
-                Individual parent2 = SelectParent(selected);
-
-                Individual child = CreateChildFromParents(parent1, parent2);
-
-                offspring.Add(child);
+                return 0;
             }
-
-            return offspring;
         }
 
-        private bool randomBool()
+
+        public double EstimateElo(double acpl)
         {
-            return rng.NextDouble() >= 0.5;
+            return 3100 * Math.Exp(-0.01 * acpl);
         }
 
-        private Individual CreateChildFromParents(Individual parent1, Individual parent2)
-        {
-            Config c1 = parent1.Config;
-            Config c2 = parent2.Config;
 
-            int NumOpeningMoves = randomBool() ? c1.NumOpeningMoves : c2.NumOpeningMoves;
-            int NumMovesRepeatedPieceMovement = randomBool() ? c1.NumMovesRepeatedPieceMovement : c2.NumMovesRepeatedPieceMovement;
-            double EarlyQueenMovesPenalty = randomBool() ? c1.EarlyQueenMovesPenalty : c2.EarlyQueenMovesPenalty;
-            double EarlyOverextendingPenalty = randomBool() ? c1.EarlyOverextendingPenalty : c2.EarlyOverextendingPenalty;
-            double EarlyKnighBishopDevelopmentBonus = randomBool() ? c1.EarlyKnighBishopDevelopmentBonus : c2.EarlyKnighBishopDevelopmentBonus;
-            double RepeatedPieceMovePenalty = randomBool() ? c1.RepeatedPieceMovePenalty : c2.RepeatedPieceMovePenalty;
-            double KnightOnEdgePenalty = randomBool() ? c1.KnightOnEdgePenalty : c2.KnightOnEdgePenalty;
-            double RepeatedPositionPenalty = randomBool() ? c1.RepeatedPositionPenalty : c2.RepeatedPositionPenalty;
-
-            Config createdConfig = new(NumOpeningMoves, NumMovesRepeatedPieceMovement,
-                EarlyQueenMovesPenalty, EarlyOverextendingPenalty, EarlyKnighBishopDevelopmentBonus, RepeatedPieceMovePenalty,
-                KnightOnEdgePenalty, RepeatedPositionPenalty);
-
-            return new Individual(createdConfig);
-        }
-
-        private Individual SelectParent(List<Individual> individuals)
-        {
-            return individuals[rng.Next(0, individuals.Count - 1)];
-        }
-
-        private List<Individual> SelectConfigurations(List<Individual> population)
-        {
-            population.Sort(CompareIndividuals);
-
-            int survivorsCount = Math.Max((int)(0.3 * population.Count), 1);
-            return population.Take(survivorsCount).ToList();
-        }
-
-        private int CompareIndividuals(Individual x, Individual y)
-        {
-            BotMatchStats a = ((Individual)x).Stats;
-            BotMatchStats b = ((Individual)y).Stats;
-
-            int scoreA = 10 * a.NumWins + 5 * a.NumDraws;
-            int scoreB = 10 * b.NumWins + 5 * b.NumDraws;
-
-            return scoreA - scoreB;
-        }
-
-        private void EvaluatePopulation(List<Individual> population)
+        private List<Individual> EvaluatePopulation(List<Individual> population)
         {
             var tasks = new List<Task>();
-            for(int i = 0; i < population.Count(); i++ )
+            List<Individual> result = new List<Individual>();
+            for (int i = 0; i < population.Count; i++)
             {
                 Individual individual = population[i];
-                individual.Stats = new();
-                var task = Task.Factory.StartNew(() => EvaluateIndividual(individual), TaskCreationOptions.LongRunning);
+                individual.Stats = new(); 
+                var task = Task.Factory.StartNew(
+                    () => { individual.AverageCentipawnLoss = EvaluateIndividual(individual); result.Add(individual); },
+                    TaskCreationOptions.LongRunning
+                );
                 tasks.Add(task);
             }
 
             Task.WhenAll(tasks).Wait();
+
+            return result;
         }
 
-        ChessPlayer PlayerToMove(Board board, ChessPlayer white, ChessPlayer black) => board.IsWhiteToMove ? white : black;
-        ChessPlayer PlayerNotOnMove(Board board, ChessPlayer white, ChessPlayer black) => board.IsWhiteToMove ? black : white;
+        ChessPlayer PlayerToMove(Board board, ChessPlayer white, ChessPlayer black) =>
+            board.IsWhiteToMove ? white : black;
+
+        ChessPlayer PlayerNotOnMove(Board board, ChessPlayer white, ChessPlayer black) =>
+            board.IsWhiteToMove ? black : white;
 
         ChessPlayer CreatePlayer(PlayerType type)
         {
             return type switch
             {
-                PlayerType.MyBot => new ChessPlayer(new MyBot(), ChallengeController.PlayerType.MyBot, GameDurationMilliseconds),
-                PlayerType.SFBot => new ChessPlayer(new SFBot(), ChallengeController.PlayerType.SFBot, GameDurationMilliseconds)
+                PlayerType.MyBot
+                    => new ChessPlayer(
+                        new MyBot(),
+                        ChallengeController.PlayerType.MyBot,
+                        GameDurationMilliseconds
+                    ),
+                PlayerType.SFBot
+                    => new ChessPlayer(
+                        new SFBot(),
+                        ChallengeController.PlayerType.SFBot,
+                        GameDurationMilliseconds
+                    )
             };
         }
 
-        private void EvaluateIndividual(Individual individual)
+        private double EvaluateIndividual(Individual individual)
         {
-
             bool isMyBotWhite = true;
 
-            foreach (string fen in botMatchStartFens) {
-                Board board = new Board();
-                board.LoadPosition(fen);
+            double previousEval = 0; 
+            double totalCentipawnLoss = 0;
+            double moveCount = 0.0;
 
-                ChessPlayer white = isMyBotWhite ? CreatePlayer(PlayerType.MyBot) : CreatePlayer(PlayerType.SFBot);
-                ChessPlayer black = isMyBotWhite ? CreatePlayer(PlayerType.SFBot) : CreatePlayer(PlayerType.MyBot);
+
+            foreach (string fen in botMatchStartFens)
+            {
+
+                ChessPlayer white = isMyBotWhite
+                    ? CreatePlayer(PlayerType.MyBot)
+                    : CreatePlayer(PlayerType.SFBot);
+                ChessPlayer black = isMyBotWhite
+                    ? CreatePlayer(PlayerType.SFBot)
+                    : CreatePlayer(PlayerType.MyBot);
 
                 bool gameCompleted = false;
 
-                for(int i = 0; i < 2; i++)
-                { 
-                    while(!gameCompleted)
+                for (int i = 0; i < 2; i++)
+                {
+                    Board board = new Board();
+                    board.LoadPosition(fen);
+                    while (!gameCompleted)
                     {
                         ChessPlayer playerToMove = PlayerToMove(board, white, black);
                         ChessPlayer playerNotToMove = PlayerNotOnMove(board, white, black);
                         API.Board botBoard = new(board);
 
-                        API.Timer timer = new(playerToMove.TimeRemainingMs, playerNotToMove.TimeRemainingMs, GameDurationMilliseconds, IncrementMilliseconds);
-                        API.Move move = white.Bot.Think(botBoard, timer, individual.Config);
+                        API.Timer timer =
+                            new(
+                                playerToMove.TimeRemainingMs,
+                                playerNotToMove.TimeRemainingMs,
+                                GameDurationMilliseconds,
+                                IncrementMilliseconds
+                            );
+                        API.Move move = playerToMove.Bot.Think(botBoard, timer, individual.Config);
 
                         board.MakeMove(new Move(move.RawValue), false);
+
+
+                        // If the bot that just moved is MyBot, get the evaluation and compute the centipawn loss.
+                        if (playerToMove.Bot is MyBot)
+                        {
+                            double currentEval = GetStockfishEvaluation(board, timer);
+                            totalCentipawnLoss += Math.Abs(currentEval - previousEval); // Convert pawn difference to centipawns.
+                            moveCount++;
+                            previousEval = currentEval;
+                        }
 
                         GameResult result = Arbiter.GetGameState(board);
                         if (Arbiter.IsDrawResult(result))
                         {
                             individual.Stats.NumDraws++;
                             gameCompleted = true;
-                        } else if(Arbiter.IsWhiteWinsResult(result) == isMyBotWhite)
+                        }
+                        else if (Arbiter.IsWhiteWinsResult(result) == isMyBotWhite)
                         {
                             individual.Stats.NumWins++;
                             gameCompleted = true;
-                        } else if(Arbiter.IsWinResult(result))
+                        }
+                        else if (Arbiter.IsWinResult(result))
                         {
                             individual.Stats.NumLosses++;
                             gameCompleted = true;
@@ -303,15 +316,17 @@ namespace ChessChallenge.Application
                     isMyBotWhite = !isMyBotWhite;
                 }
             }
+            double acpl = totalCentipawnLoss / moveCount;
+            individual.AverageCentipawnLoss = acpl; 
+            Console.WriteLine($"Average Centipawn Loss (ACPL) for this individual: {individual.AverageCentipawnLoss}");
+            return acpl;
         }
-
-
 
         private List<Individual> InitializePopulation(int populationSize)
         {
-            var population = new List<Individual>();
+            var population = new List<Individual>(populationSize);
 
-            for(int i = 0; i < populationSize; i++)
+             for (int i = 0; i < populationSize; i++)
             {
                 population.Add(new Individual(GetConfig()));
             }
@@ -319,9 +334,11 @@ namespace ChessChallenge.Application
             return population;
         }
 
-
-
-        private static double GetPseudoDoubleWithinRange(Random random, double lowerBound, double upperBound)
+        private static double GetPseudoDoubleWithinRange(
+            Random random,
+            double lowerBound,
+            double upperBound
+        )
         {
             var rDouble = random.NextDouble();
             var rRangeDouble = rDouble * (upperBound - lowerBound) + lowerBound;
@@ -341,24 +358,33 @@ namespace ChessChallenge.Application
             double KnightOnEdgePenalty = GetPseudoDoubleWithinRange(random, 0.0, 2.0);
             double RepeatedPositionPenalty = GetPseudoDoubleWithinRange(random, 0.0, 2.0);
 
-            return new(NumOpeningMoves, NumMovesRepeatedPieceMovement,
-                EarlyQueenMovesPenalty, EarlyOverextendingPenalty, EarlyKnighBishopDevelopmentBonus, RepeatedPieceMovePenalty,
-                KnightOnEdgePenalty, RepeatedPositionPenalty);
+            return new(
+                NumOpeningMoves,
+                NumMovesRepeatedPieceMovement,
+                EarlyQueenMovesPenalty,
+                EarlyOverextendingPenalty,
+                EarlyKnighBishopDevelopmentBonus,
+                RepeatedPieceMovePenalty,
+                KnightOnEdgePenalty,
+                RepeatedPositionPenalty
+            );
         }
     }
 
-
     struct Individual
     {
-        public Individual(API.Config config) {
+        public Individual(API.Config config)
+        {
             Config = config;
             Stats = new BotMatchStats();
             BotMatchGameIndex = 0;
+            AverageCentipawnLoss = 0;
             BotTaskWaitHandle = new AutoResetEvent(false);
         }
 
         public int BotMatchGameIndex { get; set; }
         public API.Config Config;
+        public double AverageCentipawnLoss { get; set; }
         public BotMatchStats Stats { get; set; }
         public AutoResetEvent BotTaskWaitHandle { get; }
     }

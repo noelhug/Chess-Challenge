@@ -314,7 +314,7 @@ public class MyBot : IChessBot
         PieceType movePieceType = move.MovePieceType;
         int targetFile = move.TargetSquare.File;
         // Make queen moves (in hopefully the opening 50% less likely to be taken
-        if (numberOfMovesInGame <= _config.NumOpeningMoves)
+        if (numberOfMovesInGame <= 5)
         {
             if (
                 Array.Exists(
@@ -322,18 +322,18 @@ public class MyBot : IChessBot
                     element => element == movePieceType
                 )
             )
-                eval *= _config.EarlyQueenMovesPenalty;
+                eval *= 1.4130488021890286;
 
             
 
             // side note: why does C# formatting look like this xD?
             if (movePieceType == PieceType.Knight || movePieceType == PieceType.Bishop)
-                eval *= _config.EarlyKnighBishopDevelopmentBonus;
+                eval *= 0.5733094266489882;
 
             // Discourage extending to much in the opening
             if (move.TargetSquare.Rank > 4)
-                eval *= _config.EarlyOverextendingPenalty;
-        }
+                eval *= 0.14565738261264882;
+        }   
 
         // Has this piece been moved in the opening before (try preventing shifting pieces around repeatadly).
         bool isRepeatedPiece = false;
@@ -350,13 +350,13 @@ public class MyBot : IChessBot
         }
 
         if (isRepeatedPiece)
-            eval *= _config.RepeatedPieceMovePenalty;
+            eval *= 0.9197157447628903;
 
         if (movePieceType == PieceType.Knight && (targetFile == 0 || targetFile == 7))
-            eval *= _config.KnightOnEdgePenalty;
+            eval *= 0.7799373921836694;
 
         if (board.IsRepeatedPosition())
-            eval *= _config.RepeatedPositionPenalty;
+            eval *= 0.7311405926754486;
 
         return eval;
     }

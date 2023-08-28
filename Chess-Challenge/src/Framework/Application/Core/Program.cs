@@ -18,45 +18,47 @@ namespace ChessChallenge.Application
             API.Config bestFound = optimusPrime.OptimizeConfig();
 
             Console.WriteLine("Best Found: " + bestFound);
-            //Vector2 loadedWindowSize = GetSavedWindowSize();
-            //int screenWidth = (int)loadedWindowSize.X;
-            //int screenHeight = (int)loadedWindowSize.Y;
 
-            //if (hideRaylibLogs)
-            //{
-            //    unsafe
-            //    {
-            //        Raylib.SetTraceLogCallback(&LogCustom);
-            //    }
-            //}
+            
+            Vector2 loadedWindowSize = GetSavedWindowSize();
+            int screenWidth = (int)loadedWindowSize.X;
+            int screenHeight = (int)loadedWindowSize.Y;
 
-            //Raylib.InitWindow(screenWidth, screenHeight, "Chess Coding Challenge");
-            //Raylib.SetTargetFPS(60);
+            if (hideRaylibLogs)
+            {
+                unsafe
+                {
+                    Raylib.SetTraceLogCallback(&LogCustom);
+                }
+            }
 
-            //UpdateCamera(screenWidth, screenHeight);
+            Raylib.InitWindow(screenWidth, screenHeight, "Chess Coding Challenge");
+            Raylib.SetTargetFPS(60);
 
-            //ChallengeController controller = new();
+            UpdateCamera(screenWidth, screenHeight);
 
-            //while (!Raylib.WindowShouldClose())
-            //{
-            //    Raylib.BeginDrawing();
-            //    Raylib.ClearBackground(new Color(22, 22, 22, 255));
-            //    Raylib.BeginMode2D(cam);
+            ChallengeController controller = new();
 
-            //    controller.Update();
-            //    controller.Draw();
+            while (!Raylib.WindowShouldClose())
+            {
+                Raylib.BeginDrawing();
+                Raylib.ClearBackground(new Color(22, 22, 22, 255));
+                Raylib.BeginMode2D(cam);
 
-            //    Raylib.EndMode2D();
+                controller.Update();
+                controller.Draw();
 
-            //    controller.DrawOverlay();
+                Raylib.EndMode2D();
 
-            //    Raylib.EndDrawing();
-            //}
+                controller.DrawOverlay();
 
-            //Raylib.CloseWindow();
+                Raylib.EndDrawing();
+            }
 
-            //controller.Release();
-            //UIHelper.Release();
+            Raylib.CloseWindow();
+
+            controller.Release();
+            UIHelper.Release();
         }
 
         public static void SetWindowSize(Vector2 size)
@@ -108,10 +110,5 @@ namespace ChessChallenge.Application
             bool isBigWindow = Raylib.GetScreenWidth() > Settings.ScreenSizeSmall.X;
             File.WriteAllText(FileHelper.PrefsFilePath, isBigWindow ? "1" : "0");
         }
-
-      
-
     }
-
-
 }
